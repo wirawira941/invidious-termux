@@ -119,7 +119,11 @@ jobs:
           if readelf -d invidious | grep -q "ld-linux"; then
             echo "FAIL: glibc interpreter/needed entry present" >&2; exit 1
           fi
-          readelf --dyn-syms invidious | grep -q " main$"
+          # NOTE: Crystal's main is NOT a dynamic symbol — a PIE executable
+          # does not export main, the entry point (already proven non-zero by
+          # the header above) is what the loader uses. Check the regular
+          # symbol table instead of dyn-syms.
+          readelf -s invidious | grep -q " main$"
           echo "ELF gate OK"
 
       - name: Package + release
