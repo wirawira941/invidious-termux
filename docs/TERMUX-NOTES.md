@@ -25,8 +25,12 @@
     same reason).
   - Link with NDK r28c clang `--target=aarch64-linux-android24` against
     a sysroot of Termux .debs downloaded from packages.termux.dev
-    (libgc, libevent, libyaml, pcre2, libxml2, openssl, libpq, sqlite,
+    (libgc, libevent, libyaml, pcre2, libxml2, openssl, libpq, libsqlite,
     libiconv, libgmp, zlib, libc++, liblzma), RUNPATH baked to
+    `$PREFIX/lib`. Lesson from CI run #1 (2026-10-25): Termux splits the
+    SQLite CLI (`sqlite` package, binary only) from the library
+    (`libsqlite` package, libsqlite3.so) — the sysroot must fetch
+    `libsqlite`, or the link dies with `unable to find library -lsqlite3`.
     `$PREFIX/lib`. NDK r28c has no GNU libstdc++, hence `-lc++`
     (Termux's `libc++` package provides `libc++.so` at runtime).
   - ELF gate fails the release unless: Type DYN, Machine AArch64,

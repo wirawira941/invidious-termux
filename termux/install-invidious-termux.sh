@@ -31,7 +31,7 @@ CONFIG="$APP_DIR/config/config.yml"
 PGDATA="$PREFIX/var/lib/postgresql"
 
 # ---------------------------------------------------------------- packages
-PKGS="postgresql deno git curl libgc libevent libyaml pcre2 libxml2 openssl libpq sqlite libiconv libgmp zlib libc++ liblzma librsvg"
+PKGS="postgresql deno git curl libgc libevent libyaml pcre2 libxml2 openssl libpq libsqlite libiconv libgmp zlib libc++ liblzma librsvg"
 for pkg in $PKGS; do
     if ! dpkg -s "$pkg" >/dev/null 2>&1; then
         echo "installing Termux package: $pkg"
