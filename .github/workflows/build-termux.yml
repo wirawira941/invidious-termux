@@ -1,0 +1,140 @@
+name: Build Termux (Android arm64, Crystal cross-compile)
+
+on:
+  workflow_dispatch:
+    inputs:
+      invidious_ref:
+        description: "Invidious git tag/branch to build"
+        required: true
+        default: "v2.20261022.0"
+      release_tag:
+        description: "Release tag to create"
+        required: true
+        default: "v2.20261022.0-termux.1"
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      CRYSTAL_VERSION: "1.22.1"
+      TERMUX_PREFIX: "/data/data/com.termux/files/usr"
+    steps:
+      - name: Checkout port repo
+        uses: actions/checkout@v4
+
+      - name: Install host Crystal (cross-compiler)
+        run: |
+          set -eux
+          curl -fL -o crystal.tar.gz "https://github.com/crystal-lang/crystal/releases/download/${CRYSTAL_VERSION}/crystal-${CRYSTAL_VERSION}-1-linux-x86_64.tar.gz"
+          tar -xzf crystal.tar.gz -C "$HOME"
+          mv "$HOME/crystal-${CRYSTAL_VERSION}-1" "$HOME/crystal"
+          echo "$HOME/crystal/bin" >> "$GITHUB_PATH"
+          "$HOME/crystal/bin/crystal" --version
+          "$HOME/crystal/bin/shards" --version
+
+      - name: Setup NDK r28c
+        run: |
+          set -eux
+          curl -fL -o ndk.zip "https://dl.google.com/android/repository/android-ndk-r28c-linux.zip"
+          unzip -q ndk.zip -d "$HOME"
+          echo "NDK_HOME=$HOME/android-ndk-r28c" >> "$GITHUB_ENV"
+
+      - name: Fetch Termux .deb sysroot (link libraries)
+        run: |
+          set -eux
+          python3 - <<'EOF'
+          import re, subprocess, sys
+          WANT = ["libgc", "libevent", "libyaml", "pcre2", "libxml2", "openssl",
+                  "libpq", "sqlite", "libiconv", "libgmp", "zlib", "libc++", "liblzma"]
+          idx = subprocess.run(["curl", "-fsSL", "https://packages.termux.dev/apt/termux-main/dists/stable/main/binary-aarch64/Packages"],
+                               capture_output=True, text=True, check=True).stdout
+          found = {}
+          for stanza in idx.split("\n\n"):
+              m = re.search(r"^Package: (.+)$", stanza, re.M)
+              f = re.search(r"^Filename: (.+)$", stanza, re.M)
+              if m and f and m.group(1).strip() in WANT:
+                  found[m.group(1).strip()] = f.group(1).strip()
+          missing = [p for p in WANT if p not in found]
+          if missing:
+              sys.exit(f"packages missing from Termux index: {missing}")
+          for pkg, fn in sorted(found.items()):
+              print(pkg, "->", fn)
+              subprocess.run(["curl", "-fsSL", "-o", "/tmp/pkg.deb",
+                              f"https://packages.termux.dev/apt/termux-main/{fn}"], check=True)
+              subprocess.run(["dpkg-deb", "-x", "/tmp/pkg.deb", "sysroot"], check=True)
+          EOF
+          ls "$PWD/sysroot$TERMUX_PREFIX/lib" | head -40
+
+      - name: Clone Invidious at pinned ref
+        run: |
+          set -eux
+          git clone --depth 1 --branch "${{ inputs.invidious_ref }}" https://github.com/iv-org/invidious.git invidious-src
+          cd invidious-src && git log --oneline -1
+
+      - name: shards install (production)
+        working-directory: invidious-src
+        run: |
+          set -eux
+          shards install --production
+
+      - name: Cross-compile to aarch64-linux-android object
+        working-directory: invidious-src
+        run: |
+          set -eux
+          # Mirrors how Termux builds Crystal itself (packages/crystal/build.sh):
+          # host compiler, Android target, -Dwithout_iconv.
+          crystal build src/invidious.cr --release \
+            --cross-compile --target aarch64-linux-android \
+            -Dwithout_iconv \
+            --link-flags "-lxml2 -llzma"
+          ls -la invidious.o
+
+      - name: Link with NDK clang against the Termux sysroot
+        working-directory: invidious-src
+        run: |
+          set -eux
+          SYSROOT="$GITHUB_WORKSPACE/sysroot$TERMUX_PREFIX"
+          CLANG="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/clang"
+          "$CLANG" --target=aarch64-linux-android24 invidious.o -o invidious \
+            -L"$SYSROOT/lib" -Wl,-rpath,"$TERMUX_PREFIX/lib" \
+            -lxml2 -llzma -lssl -lcrypto -lpq -lsqlite3 \
+            -lgc -levent -lpcre2-8 -lyaml -lgmp -lz -liconv \
+            -lc++ -lm -ldl
+          ls -la invidious
+
+      - name: ELF gate (must be bionic PIE)
+        working-directory: invidious-src
+        run: |
+          set -eux
+          readelf -h invidious | tee /tmp/elf.txt
+          grep -q "Type:.*DYN" /tmp/elf.txt
+          grep -q "Machine:.*AArch64" /tmp/elf.txt
+          readelf -l invidious | grep -q "/system/bin/linker64"
+          readelf -d invidious
+          if readelf -d invidious | grep -q "ld-linux"; then
+            echo "FAIL: glibc interpreter/needed entry present" >&2; exit 1
+          fi
+          readelf --dyn-syms invidious | grep -q " main$"
+          echo "ELF gate OK"
+
+      - name: Package + release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eux
+          mkdir -p dist/config
+          cp invidious-src/invidious dist/invidious
+          cp -r invidious-src/assets dist/assets
+          cp -r invidious-src/locales dist/locales
+          cp invidious-src/config/config.example.yml dist/config/config.example.yml
+          cp invidious-src/LICENSE dist/LICENSE
+          ASSET="invidious_2.20261022.0_termux_arm64.tar.gz"
+          tar -czf "$ASSET" -C dist invidious assets locales config LICENSE
+          sha256sum "$ASSET" > "$ASSET.sha256"
+          ls -la "$ASSET"*
+          gh release create "${{ inputs.release_tag }}" --repo "${{ github.repository }}" \
+            --title "Invidious 2.20261022.0 for Termux (Android arm64) - ${{ inputs.release_tag }}" \
+            --notes "Native Android arm64 build of Invidious v2.20261022.0, cross-compiled in CI with Crystal 1.22.1 for target aarch64-linux-android (the same recipe Termux uses to build Crystal itself) and linked against Termux libraries. Runs on Termux with PostgreSQL and invidious-companion, no proot. Installer, config template and service scripts in termux/; build notes in docs/TERMUX-NOTES.md." \
+            "$ASSET" "$ASSET.sha256"
