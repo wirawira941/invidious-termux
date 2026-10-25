@@ -15,7 +15,7 @@ set -eu
 TAG="v2.20261022.0-termux.1"
 VER="2.20261022.0"
 ASSET="invidious_${VER}_termux_arm64.tar.gz"
-SHA256="TO_BE_FILLED_AFTER_CI"
+SHA256="89f4ceed10933536afaba10d522f8af94f36fb75a479aba4ee2b83e6d9c5badc"
 URL="https://github.com/wirawira941/invidious-termux/releases/download/${TAG}/${ASSET}"
 COMPANION_COMMIT="fcb0456ad5bdf8fdbb44257423a1f8246e38e925"
 COMPANION_REPO="https://github.com/iv-org/invidious-companion.git"
