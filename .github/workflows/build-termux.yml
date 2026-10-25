@@ -47,7 +47,7 @@ jobs:
           python3 - <<'EOF'
           import re, subprocess, sys
           WANT = ["libgc", "libevent", "libyaml", "pcre2", "libxml2", "openssl",
-                  "libpq", "sqlite", "libiconv", "libgmp", "zlib", "libc++", "liblzma"]
+                  "libpq", "libsqlite", "libiconv", "libgmp", "zlib", "libc++", "liblzma"]
           idx = subprocess.run(["curl", "-fsSL", "https://packages.termux.dev/apt/termux-main/dists/stable/main/binary-aarch64/Packages"],
                                capture_output=True, text=True, check=True).stdout
           found = {}
