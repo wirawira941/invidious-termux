@@ -135,7 +135,7 @@ jobs:
           cp invidious-src/invidious dist/invidious
           cp -r invidious-src/assets dist/assets
           cp -r invidious-src/locales dist/locales
-                    cp invidious-src/config/config.example.yml dist/config/config.example.yml
+            cp invidious-src/config/config.example.yml dist/config/config.example.yml
                     cp -r invidious-src/config/sql dist/config/sql
                     cp -r invidious-src/config/migrate-scripts dist/config/migrate-scripts
           cp invidious-src/LICENSE dist/LICENSE
